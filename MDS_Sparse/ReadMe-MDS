@@ -1,0 +1,39 @@
+Instruction of MDS_Sparse in matlab
+
+Input data format:
+		"ID1	ID2	Weight"
+
+Notice that IDs must start from 0 to n, and no duplicated entry is allowed. For mds_sparse.m, weight can only be 1/0/-1. For mds_weight.m, weight can be 2/1/0/-1/-2
+
+1. mds_sparse.m
+	-- mds_sparse('re_Epinions.txt', 4, pwd);
+
+	parameter configurations allowed. By default,
+							wp=1;
+							wn=3;
+							wu=0.01;
+							dp=0.1;
+							dn=1.2;
+							du=0.5;
+
+
+2. mds_weight.m
+
+	-- mds_sparse('re_wEpinions.txt', 4, pwd);
+
+	parameter configurations allowed. By default,
+							wp=1;
+							wn=3;
+							wwp=0.1;
+							wwn=0.3;
+							wu=0.01;
+							dp=dwp=0.1;
+							dn=dwn=1.2;
+							du=0.5;
+
+3. mds_all.m
+
+	rull convergence on all 10 training data, named by
+			're_train'+'i_'+data_name, where i in [0,9]
+
+	--mds_all(data_, dim);
