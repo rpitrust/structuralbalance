@@ -1,0 +1,13 @@
+MDS based Converged Model
+
+The SM/SG is implemented in Matlab. See ReadMe-MDS for detailed instruction.
+
+Stylized networks illustrate the transitivity and aggregation effects of social network convergence. Run SM/SG on stylized networks by the following line.
+
+	mds_sparse('transitivity1.txt',2,pwd)
+		where 'transitivity1.txt' is the input file
+			2 is the dimensionality
+			pwd is the output path
+
+The output file will be named by 'loc_transitivity1.txt'. To see the visualization of the converged layout. Run nodesPlot.py in Plots/ by:
+	python nodesPlot.py loc_transitivity1.txt

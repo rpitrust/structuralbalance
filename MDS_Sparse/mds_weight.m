@@ -31,11 +31,11 @@ wn=3;
 wwp=1;
 wwn=3;
 wu=0.01;
-dp=0.05;
-dn=2.0;
-dwp=0.05;
-dwn=2.0;
-du=1.0;
+dp=0.1;
+dn=1.3;
+dwp=0.1;
+dwn=1.3;
+du=0.6;
 
 % initialization
 %X0=[0,0;1,1;2,2]
