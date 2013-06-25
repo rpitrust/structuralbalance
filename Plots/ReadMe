@@ -1,0 +1,4 @@
+Visualization tool 
+
+To see the visualization of the converged layout. Run nodesPlot.py in Plots/ by:
+	python nodesPlot.py loc_transitivity1.txt
