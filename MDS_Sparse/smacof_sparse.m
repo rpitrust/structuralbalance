@@ -1,11 +1,6 @@
-function [X,hist] = smacof_sparse(Adj,X0,iter,verbose,xhistory,rtol,atol, tol, wp, wn, wu, dp, dn, du)
+function [X,hist,total_time] = smacof_sparse(Adj,X0,iter,verbose,xhistory,rtol,atol, tol, wp, wn, wu, dp, dn, du)
 
 % check input correctness
-if nargin < 13,
-    error('Incorrect number of arguments, exiting.')     
-end
-
-
 if size(Adj,1) ~= size(Adj,2),
     error('Matrix D must be square, exiting.')     
 end
@@ -26,7 +21,7 @@ else
     VERBOSE = 0;
 end
 
-if nargout == 2,
+if nargout == 3,
     HISTORY = 1;
 else
     HISTORY = 0;
@@ -41,44 +36,34 @@ end
 
 
 % initialize
-iii = 1;
-
-X = X0;
+iii = 1;  %iteration counter
+X = X0;   %initial guess of X
 [n,d]=size(X);
 
-Lw=calc_Lw (Adj, wp, wn, wu);
+Lw=calc_Lw (Adj, wp, wn, wu);  %calculate L^w before the recursive step
 
-%dd=diag(Lw);
-%find(dd(:)==0)
+[it, jt, W, D]=calc_i(Adj, dp,dn,du, wp, wn, wu); %find out the non-zeros terms in the adjacency matrix
 
+[norm_X, norms]=calc_normX(it,jt, X);  %compute Xi-Xj/|Xi-Xj| with non-zero weights
 
-[i, W, D]=calc_i(Adj, dp,dn,du, wp, wn, wu);
-ij=calc_ij(i,n);
-
-[norm_X, norms]=calc_normX(ij, X);
 fprintf('Fatorization begins!\n');
-%full(Lw)
-%full(Adj)
-%full(Lw)
-%make Lw strict diagonally dominant matrix
+
+%Approximate L^w by L^w+ delta*I, where delta is small. See
+%Leevnberg-Marquardt Method for reference.
 delta=tol*speye(size(Lw,1));
 Lw=Lw+delta;
 
-%Lw=Lw(2:n,2:n);
-%full(Lw)
-%[R,p] = chol(Lw);
+%1. Use Tim Davis's object oriented factorize package to factorize sparse, symmetric and positive definite Lw
+%F=factorize(Lw,'chol',1) ;
 
-F=factorize(Lw,'chol',1) ;
-%S=inverse(Lw); 
-%[U,S,V] = svds(Lw,kk);
-%Lwp=V*pinv(S)*U';
+%2. construct function handler for matrix Lw.
+Ldiag=diag(Lw);
+afun=@(x)lwx(it, jt, W, Ldiag, x);
 
 fprintf('initialized!\n');
 
 % initialize history
 if HISTORY || VERBOSE,
-    %hist.time = zeros(iter);
-    %hist.s = zeros(iter);
     hist.s(1) = calc_stress (W,D,norms);
 end
 
@@ -91,27 +76,29 @@ if HISTORY && VERBOSE,
     fprintf(1,'INIT   %12.3g   ----------\n', hist.s(1)); 
 end
 
-
-while (iii <= iter),
+clock=cputime;
+while (iii <= iter),   
     t = cputime;       
+    %compute Lx^X based on updated X
+    B=calc_B (norm_X, W, D, it, n, d);
     
-    B=calc_B (norm_X, W, D, ij, n, d);
-    %B=B(2:n,:);
-    %fprintf('B solved!\n', cputime);
-    
-    %rX = R\(R'\B);
-    X=F\B;
-
-    %rX=F\B;
-    %X(2:n,:)=rX;
+    %1. solve X by cholesky factorization
     %X=F\B;
     
-    %fprintf('X solved!\n', cputime);
-
-    [norm_X, norms]=calc_normX(ij, X);
+    %2. solve X by Preconditioned Conjugate Gradients Method with function
+    %handler input @afun
+    
+    for j=1:d
+            X(:,j)=pcg(afun,B(:,j),0.1,100);
+    end
+    
+    
+    %compute Xi-Xj/|Xi-Xj| with non-zero weights based on updated X
+    [norm_X, norms]=calc_normX(it,jt, X);
+    
+    %update current stress function
     S = calc_stress (W,D,norms);
     
-
     % add history
     if HISTORY || VERBOSE,    
         hist.time(iii) = cputime-t;
@@ -129,13 +116,16 @@ while (iii <= iter),
     
     % check stopping conditions
     if S < atol,
-        fprintf(1,'atol=%g reached, exiting\n',atol)
+        fprintf(1,'atol=%g reached, exiting\n',atol) %absolute stopping condition
         return 
     end
 
     if (iii > 1) && (HISTORY || VERBOSE),
-        if (hist.s(iii-1)/hist.s(iii)-1) < rtol,
+        if (hist.s(iii-1)/hist.s(iii)-1) < rtol, %relative stopping condition
+            total_time=cputime-clock;
             fprintf(1,'rtol=%g reached, exiting\n',rtol)
+            fprintf(1,'total running time(sec): \n')
+            fprintf(1,' %10.4g', total_time) 
             return 
         end
     end
@@ -144,11 +134,14 @@ while (iii <= iter),
         
 end    
 
-% SERVICE FUNCTIONS
+
+
+
+%SERVICE FUNCTIONS
+%------------------------------------------------------------------------------
+%compute L^w matrix
 function [Lw] = calc_Lw (Adj, wp, wn, wu)
-
 Lw = sparse(Adj);
-
 
 i = find(Adj(:) == 3);
 Lw(i) = - wp;
@@ -157,43 +150,37 @@ Lw(i) = - wu;
 i = find(Adj(:) == 1);
 Lw(i) = - wn;
 
-
 d = sum(Lw);
 Lw = Lw - diag(d);
 return
 
-%compute non-zero single-digit index from sparse Adj
-function [i, W, D]=calc_i(Adj, dp,dn,du, wp, wn, wu)
-i=find(Adj(:)~=0);
-W=zeros(size(i,1),1);
-D=zeros(size(i,1),1);
-for k=1: size(i,1),
-    if (Adj(i(k))==3),
+%compute the non-zero terms from sparse adjacency matrix Adj
+%W,D are the weight/distance values of these non-zero terms
+function [it, jt, W, D]=calc_i(Adj, dp,dn,du, wp, wn, wu)
+[it,jt,s]=find(Adj);
+W=zeros(size(s));
+D=zeros(size(s));
+for k=1: size(s,1),
+    if (s(k)==3),
 	W(k)=wp;
 	D(k)=dp;
-    elseif (Adj(i(k))==2),
+    elseif (s(k)==2),
 	W(k)=wu;
 	D(k)=du;
-    elseif (Adj(i(k))==1), 	
+    elseif (s(k)==1), 	
 	W(k)=wn;
 	D(k)=dn;
-    else,
+    else
 	fprintf('type error!\n');
     end
 end	
+
 return
 
-%compute non-zero i,j index from single-digit index
-function [ij]=calc_ij(i, n)
-ij=zeros(size(i,1),2);
-ij(:,1)=floor((i-0.01)/n)+1;
-ij(:,2)=i-(ij(:,1)-1)*n;
-return
-
-%compute norms and norm_X list based on X and ij
-function [norm_X, norms]=calc_normX(ij, X)
-Xi=X(ij(:,1),:);
-Xj=X(ij(:,2),:);
+%compute the norm Xi-Xj/|Xi-Xj| for the non-zero elements
+function [norm_X, norms]=calc_normX(it,jt, X)
+Xi=X(it,:);
+Xj=X(jt,:);
 deltaX=Xi-Xj;
 norms= sqrt(sum((deltaX).^2,2));
 if (size(X,2)==2),
@@ -202,33 +189,48 @@ elseif (size(X,2)==4),
     norm_X=deltaX./[norms,norms,norms,norms];
 elseif (size(X,2)==3),
     norm_X=deltaX./[norms,norms,norms];
-else,
+else
     fprintf('dim=?\n');
 end
 
-% compute the stress by sparse Adjj
+% compute the current stress
 function [S] = calc_stress (W,D, norms)
 S=sum(W.*((norms-D).^2));
 
 return
 
-%compute LxX by sparse index
-function [B] = calc_B (norm_X, W, D, ij, n, d)
-B = zeros(n,d);
+%compute b=LxX by the summation of all non-zero wijdij Xi-Xj/|Xi-Xj|
+function [B] = calc_B (norm_X, W, D, it, n, d)
+B = zeros(d,n);
 wd=W.*D;
 if (d==2),
     WD=[wd,wd];
 elseif (d==4),
     WD=[wd,wd,wd,wd];
 elseif (d==3),
-    nWD=[wd,wd,wd];
-else,
+    WD=[wd,wd,wd];
+else
     fprintf('dim=?\n');
 end
-WD=WD.*norm_X;
-for k=1:size(ij,1),
-    B(ij(k,1),:)=B(ij(k,1),:)+WD(k,:);
+
+WD=(WD.*norm_X)';
+for k=1:size(it,1),
+    B(:,it(k))=B(:,it(k))+WD(:,k);
 end
-   
+
+B=B';
 return
+
+%define the function handler of L^wX
+%In particular, we do LwX=L'X+ diag(Lw)X, where diag(Lw) is
+%the diagonal vector of Lw.
+function y=lwx(it, jt, W, Ldiag, X)
+
+y=zeros(size(X));
+for k=1:size(W,1),
+    y(it(k))=y(it(k))-W(k)*X(jt(k));
+end
+y=y+Ldiag.*X;
+    
+
 
